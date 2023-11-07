@@ -38,7 +38,8 @@ typedef	enum ecode {
 static int	get_list(bitstr_t *, int, int, char *[], int, FILE *),
 		get_range(bitstr_t *, int, int, char *[], int, FILE *),
 		get_number(int *, int, char *[], int, FILE *);
-static int	set_element(bitstr_t *, int, int, int);
+static int	set_element(bitstr_t *, int, int, int),
+		set_range(bitstr_t *, int, int, int, int, int);
 
 
 void
@@ -124,38 +125,63 @@ parse_cron_entry(char *schedule)
 		if (!strcmp("reboot", cmd) || !strcmp("restart", cmd)) {
 			e->flags |= WHEN_REBOOT;
 		} else if (!strcmp("yearly", cmd) || !strcmp("annually", cmd)){
-			bit_set(e->minute, 0);
-			bit_set(e->hour, 0);
-			bit_set(e->dom, 0);
-			bit_set(e->month, 0);
-			bit_nset(e->dow, 0, (LAST_DOW-FIRST_DOW+1));
-                        e->flags |= DOW_STAR;
+			set_element(e->minute, FIRST_MINUTE, LAST_MINUTE,
+				    FIRST_MINUTE);
+			set_element(e->hour, FIRST_HOUR, LAST_HOUR,
+				    FIRST_HOUR);
+			set_element(e->dom, FIRST_DOM, LAST_DOM,
+				    FIRST_DOM);
+			set_element(e->month, FIRST_MONTH, LAST_MONTH,
+				    FIRST_MINUTE);
+			set_range(e->dow, FIRST_DOW, LAST_DOW,
+				  FIRST_DOW, LAST_DOW, 1);
+			e->flags |= DOW_STAR;
 		} else if (!strcmp("monthly", cmd)) {
-			bit_set(e->minute, 0);
-			bit_set(e->hour, 0);
-			bit_set(e->dom, 0);
-			bit_nset(e->month, 0, (LAST_MONTH-FIRST_MONTH+1));
-			bit_nset(e->dow, 0, (LAST_DOW-FIRST_DOW+1));
-                        e->flags |= DOW_STAR;
+			set_element(e->minute, FIRST_MINUTE, LAST_MINUTE,
+				    FIRST_MINUTE);
+			set_element(e->hour, FIRST_HOUR, LAST_HOUR,
+				    FIRST_HOUR);
+			set_element(e->dom, FIRST_DOM, LAST_DOM,
+				    FIRST_DOM);
+			set_range(e->month, FIRST_MONTH, LAST_MONTH,
+				  FIRST_MONTH, LAST_MONTH, 1);
+			set_range(e->dow, FIRST_DOW, LAST_DOW,
+				  FIRST_DOW, LAST_DOW, 1);
+			e->flags |= DOW_STAR;
 		} else if (!strcmp("weekly", cmd)) {
-			bit_set(e->minute, 0);
-			bit_set(e->hour, 0);
-			bit_nset(e->dom, 0, (LAST_DOM-FIRST_DOM+1));
-			e->flags |= DOM_STAR;
-			bit_nset(e->month, 0, (LAST_MONTH-FIRST_MONTH+1));
-			bit_nset(e->dow, 0,0);
+			set_element(e->minute, FIRST_MINUTE, LAST_MINUTE,
+				    FIRST_MINUTE);
+			set_element(e->hour, FIRST_HOUR, LAST_HOUR,
+				    FIRST_HOUR);
+			set_range(e->dom, FIRST_DOM, LAST_DOM,
+				  FIRST_DOM, LAST_DOM, 1);
+			set_range(e->month, FIRST_MONTH, LAST_MONTH,
+				  FIRST_MONTH, LAST_MONTH, 1);
+			set_element(e->dow, FIRST_DOW, LAST_DOW,
+				    FIRST_DOW);
+			e->flags |= DOW_STAR;
 		} else if (!strcmp("daily", cmd) || !strcmp("midnight", cmd)) {
-			bit_set(e->minute, 0);
-			bit_set(e->hour, 0);
-			bit_nset(e->dom, 0, (LAST_DOM-FIRST_DOM+1));
-			bit_nset(e->month, 0, (LAST_MONTH-FIRST_MONTH+1));
-			bit_nset(e->dow, 0, (LAST_DOW-FIRST_DOW+1));
+			set_element(e->minute, FIRST_MINUTE, LAST_MINUTE,
+				    FIRST_MINUTE);
+			set_element(e->hour, FIRST_HOUR, LAST_HOUR,
+				    FIRST_HOUR);
+			set_range(e->dom, FIRST_DOM, LAST_DOM,
+				  FIRST_DOM, LAST_DOM, 1);
+			set_range(e->month, FIRST_MONTH, LAST_MONTH,
+				  FIRST_MONTH, LAST_MONTH, 1);
+			set_range(e->dow, FIRST_DOW, LAST_DOW,
+				  FIRST_DOW, LAST_DOW, 1);
 		} else if (!strcmp("hourly", cmd)) {
-			bit_set(e->minute, 0);
-			bit_nset(e->hour, 0, (LAST_HOUR-FIRST_HOUR+1));
-			bit_nset(e->dom, 0, (LAST_DOM-FIRST_DOM+1));
-			bit_nset(e->month, 0, (LAST_MONTH-FIRST_MONTH+1));
-			bit_nset(e->dow, 0, (LAST_DOW-FIRST_DOW+1));
+			set_element(e->minute, FIRST_MINUTE, LAST_MINUTE,
+				    FIRST_MINUTE);
+			set_range(e->hour, FIRST_HOUR, LAST_HOUR,
+				  FIRST_HOUR, LAST_HOUR, 1);
+			set_range(e->dom, FIRST_DOM, LAST_DOM,
+				  FIRST_DOM, LAST_DOM, 1);
+			set_range(e->month, FIRST_MONTH, LAST_MONTH,
+				  FIRST_MONTH, LAST_MONTH, 1);
+			set_range(e->dow, FIRST_DOW, LAST_DOW,
+				  FIRST_DOW, LAST_DOW, 1);
 			e->flags |= HR_STAR;
 		} else {
 			ecode = e_timespec;
@@ -188,10 +214,21 @@ parse_cron_entry(char *schedule)
 		/* DOM (days of month)
 		 */
 
-		if (ch == '*')
-			e->flags |= DOM_STAR;
-		ch = get_list(e->dom, FIRST_DOM, LAST_DOM,
-			      PPC_NULL, ch, file);
+		if (ch == '$') {
+			ch = get_char(file);
+			if (!Is_Blank(ch)) {
+				ecode = e_dom;
+				goto eof;
+			}
+			Skip_Blanks(ch, file);
+			e->flags |= DOM_LAST;
+		} else {
+			if (ch == '*')
+				e->flags |= DOM_STAR;
+			ch = get_list(e->dom, FIRST_DOM, LAST_DOM,
+					PPC_NULL, ch, file);
+		}
+
 		if (ch == EOF) {
 			ecode = e_dom;
 			goto eof;
@@ -240,12 +277,12 @@ parse_cron_entry(char *schedule)
 
 
 static int
-get_list(bits, low, high, names, ch, file)
-	bitstr_t	*bits;		/* one bit per flag, default=FALSE */
-	int		low, high;	/* bounds, impl. offset for bitstr */
-	char		*names[];	/* NULL or *[] of names for these elements */
-	int		ch;		/* current character being processed */
-	FILE		*file;		/* file being read */
+get_list(bitstr_t *bits, int low, int high, char *names[], int ch, FILE *file)
+	/* bitstr_t	*bits; */		/* one bit per flag, default=FALSE */
+	/* int		low, high; */	/* bounds, impl. offset for bitstr */
+	/* char		*names[]; */	/* NULL or *[] of names for these elements */
+	/* int		ch; */		/* current character being processed */
+	/* FILE		*file; */		/* file being read */
 {
 	register int	done;
 
@@ -262,7 +299,7 @@ get_list(bits, low, high, names, ch, file)
 
 	/* clear the bit string, since the default is 'off'.
 	 */
-	bit_nclear(bits, 0, (high-low+1));
+	bit_nclear(bits, 0, (high-low));
 
 	/* process all ranges
 	 */
@@ -287,17 +324,16 @@ get_list(bits, low, high, names, ch, file)
 
 
 static int
-get_range(bits, low, high, names, ch, file)
-	bitstr_t	*bits;		/* one bit per flag, default=FALSE */
-	int		low, high;	/* bounds, impl. offset for bitstr */
-	char		*names[];	/* NULL or names of elements */
-	int		ch;		/* current character being processed */
-	FILE 		*file;		/* file being read */
+get_range(bitstr_t *bits, int low, int high, char *names[], int ch, FILE *file)
+	/* bitstr_t	*bits;		one bit per flag, default=FALSE */
+	/* int		low, high;	bounds, impl. offset for bitstr */
+	/* char		*names[];	NULL or names of elements */
+	/* int		ch;		current character being processed */
+	/* FILE 		*file;		file being read */
 {
 	/* range = number | number "-" number [ "/" number ]
 	 */
 
-	register int	i;
 	auto int	num1, num2, num3;
 
 	Debug(DPARS|DEXT, ("get_range()...entering, exit won't show\n"))
@@ -381,21 +417,22 @@ get_range(bits, low, high, names, ch, file)
 	 * proposed conceptually by bob@acornrc, syntactically
 	 * designed then implemented by paul vixie).
 	 */
-	for (i = num1;  i <= num2;  i += num3)
-		if (EOF == set_element(bits, low, high, i))
-			return EOF;
+	if (EOF == set_range(bits, low, high, num1, num2, num3)) {
+		unget_char(ch, file);
+		return EOF;
+	}
 
 	return ch;
 }
 
 
 static int
-get_number(numptr, low, names, ch, file)
-	int	*numptr;	/* where does the result go? */
-	int	low;		/* offset applied to result if symbolic enum used */
-	char	*names[];	/* symbolic names, if any, for enums */
-	int	ch;		/* current character */
-	FILE 		*file;		/* source */
+get_number(int *numptr, int low, char *names[], int ch, FILE *file)
+	/* int	*numptr;	where does the result go? */
+	/* int	low;/		offset applied to result if symbolic enum used */
+	/* char	*names[];	symbolic names, if any, for enums */
+	/* int	ch;		current character */
+	/* FILE 		*file;		source */
 {
 	char	temp[MAX_TEMPSTR], *pc;
 	int	len, i, all_digits;
@@ -449,17 +486,38 @@ get_number(numptr, low, names, ch, file)
 
 
 static int
-set_element(bits, low, high, number)
-	bitstr_t	*bits; 		/* one bit per flag, default=FALSE */
-	int		low;
-	int		high;
-	int		number;
+set_element(bitstr_t *bits, int low, int high, int number)
+	/* bitstr_t	*bits; 		one bit per flag, default=FALSE */
+	/* int		low; */
+	/* int		high; */
+	/* int		number; */
 {
 	Debug(DPARS|DEXT, ("set_element(?,%d,%d,%d)\n", low, high, number))
 
 	if (number < low || number > high)
 		return EOF;
 
-	bit_set(bits, (number-low));
+	number -= low;
+
+	bit_set(bits, number);
+	return OK;
+}
+
+static int
+set_range(bitstr_t *bits, int low, int high, int start, int stop, int step) {
+	Debug(DPARS|DEXT, ("set_range(?,%d,%d,%d,%d,%d)\n",
+			   low, high, start, stop, step))
+
+	if (start < low || stop > high)
+		return EOF;
+	start -= low;
+	stop -= low;
+
+	if (step == 1) {
+		bit_nset(bits, start, stop);
+	} else {
+		for (int i = start; i <= stop; i += step)
+			bit_set(bits, i);
+	}
 	return OK;
 }

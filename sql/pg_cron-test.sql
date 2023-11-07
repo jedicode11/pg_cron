@@ -1,7 +1,6 @@
 CREATE EXTENSION pg_cron VERSION '1.0';
 SELECT extversion FROM pg_extension WHERE extname='pg_cron';
-ALTER EXTENSION pg_cron UPDATE TO '1.4';
-SELECT extversion FROM pg_extension WHERE extname='pg_cron';
+ALTER EXTENSION pg_cron UPDATE;
 
 -- Vacuum every day at 10:00am (GMT)
 SELECT cron.schedule('0 10 * * *', 'VACUUM');
@@ -139,6 +138,13 @@ SELECT cron.schedule(' 30 sEcOnDs ', 'SELECT 1');
 SELECT cron.schedule('59 seconds', 'SELECT 1'); 
 SELECT cron.schedule('17  seconds ', 'SELECT 1'); 
 SELECT jobid, jobname, schedule, command FROM cron.job ORDER BY jobid;
+
+-- valid last of day job
+SELECT cron.schedule('last-day-of-month-job1', '0 11 $ * *', 'SELECT 1');
+SELECT jobid, jobname, schedule, command FROM cron.job ORDER BY jobid;
+
+-- invalid last of day job
+SELECT cron.schedule('bad-last-dom-job1', '0 11 $foo * *', 'VACUUM FULL');
 
 -- cleaning
 DROP EXTENSION pg_cron;

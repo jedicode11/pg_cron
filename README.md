@@ -1,10 +1,10 @@
 [![Citus Banner](/github-banner.png)](https://www.citusdata.com/)
 
-[![Slack Status](https://citus-slack.herokuapp.com/badge.svg)](https://citus-public.slack.com/)
-
 ## What is pg_cron?
 
 pg_cron is a simple cron-based job scheduler for PostgreSQL (10 or higher) that runs inside the database as an extension. It uses the same syntax as regular cron, but it allows you to schedule PostgreSQL commands directly from the database. You can also use '[1-59] seconds' to schedule a job based on an interval.
+
+pg_cron also allows you using '$' to indicate last day of the month.
 
 ```sql
 -- Delete old data on Saturday at 3:30am (GMT)
@@ -43,7 +43,10 @@ SELECT cron.schedule_in_database('weekly-vacuum', '0 4 * * 0', 'VACUUM', 'some_o
        44
 
 -- Call a stored procedure every 5 seconds
-SELECT cron.schedule('process-updates', '5 seconds', 'CALL process_updates()'); 
+SELECT cron.schedule('process-updates', '5 seconds', 'CALL process_updates()');
+
+-- Process payroll at 12:00 of the last day of each month
+SELECT cron.schedule('process-payroll', '0 12 $ * *', 'CALL process_payroll()');
 ```
 
 pg_cron can run multiple jobs in parallel, but it runs at most one instance of a job at a time. If a second run is supposed to start before the first one finishes, then the second run is queued and started as soon as the first run completes.
@@ -53,7 +56,7 @@ The schedule uses the standard cron syntax, in which * means "run every time per
 ```
  ┌───────────── min (0 - 59)
  │ ┌────────────── hour (0 - 23)
- │ │ ┌─────────────── day of month (1 - 31)
+ │ │ ┌─────────────── day of month (1 - 31) or last day of the month ($)
  │ │ │ ┌──────────────── month (1 - 12)
  │ │ │ │ ┌───────────────── day of week (0 - 6) (0 to 6 are Sunday to
  │ │ │ │ │                  Saturday, or use names; 7 is also Sunday)
@@ -68,18 +71,18 @@ The code in pg_cron that handles parsing and scheduling comes directly from the 
 
 ## Installing pg_cron
 
-Install on Red Hat, CentOS, Fedora, Amazon Linux with PostgreSQL 15 using [PGDG](https://yum.postgresql.org/repopackages/):
+Install on Red Hat, CentOS, Fedora, Amazon Linux with PostgreSQL 16 using [PGDG](https://yum.postgresql.org/repopackages/):
 
 ```bash
 # Install the pg_cron extension
-sudo yum install -y pg_cron_15
+sudo yum install -y pg_cron_16
 ```
 
-Install on Debian, Ubuntu with PostgreSQL 15 using [apt.postgresql.org](https://wiki.postgresql.org/wiki/Apt):
+Install on Debian, Ubuntu with PostgreSQL 16 using [apt.postgresql.org](https://wiki.postgresql.org/wiki/Apt):
 
 ```bash
 # Install the pg_cron extension
-sudo apt-get -y install postgresql-15-cron
+sudo apt-get -y install postgresql-16-cron
 ```
 
 You can also install pg_cron by building it from source:
@@ -88,7 +91,7 @@ You can also install pg_cron by building it from source:
 git clone https://github.com/citusdata/pg_cron.git
 cd pg_cron
 # Ensure pg_config is in your path, e.g.
-export PATH=/usr/pgsql-15/bin:$PATH
+export PATH=/usr/pgsql-16/bin:$PATH
 make && sudo PATH=$PATH make install
 ```
 
@@ -137,8 +140,11 @@ It may be necessary to enable `trust` authentication for connections coming from
 
 You can also use a unix domain socket directory as the hostname and enable `trust` authentication for local connections in [pg_hba.conf](https://www.postgresql.org/docs/current/static/auth-pg-hba-conf.html), which is normally safe:
 ```
-# Connect via a unix domain socket
+# Connect via a unix domain socket:
 cron.host = '/tmp'
+
+# Can also be an empty string to look for the default directory:
+cron.host = ''
 ```
 
 Alternatively, pg_cron can be configured to use background workers. In that case, the number of concurrent jobs is limited by the `max_worker_processes` setting, so you may need to raise that.
@@ -169,7 +175,7 @@ select * from cron.job_run_details order by start_time desc limit 5;
 └───────┴───────┴─────────┴──────────┴──────────┴───────────────────┴───────────┴──────────────────┴───────────────────────────────┴───────────────────────────────┘
 (10 rows)
 ```
- 
+
 The records in `cron.job_run_details` are not cleaned automatically, but every user that can schedule cron jobs also has permission to delete their own `cron.job_run_details` records. 
 
 Especially when you have jobs that run every few seconds, it can be a good idea to clean up regularly, which can easily be done using pg_cron itself:
